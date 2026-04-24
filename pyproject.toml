@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ewan-kb-server"
+version = "0.1.1"
+description = "Query server for ewankb knowledge bases — MCP + HTTP interface."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [
+    {name = "Ewan", email = "475299613@qq.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "ewankb>=0.1.5",
+    "fastmcp>=2.0",
+    'tomli>=2.0; python_version < "3.11"',
+]
+
+[project.scripts]
+ewankb-server = "ewankb_server.server:main"
+
+[project.urls]
+Homepage = "https://github.com/Ewan-Jone/ewan-kb-server"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ewankb_server*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
