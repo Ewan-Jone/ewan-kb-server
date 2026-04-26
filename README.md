@@ -125,6 +125,24 @@ pip install -e .
 ewankb-server --transport http --port 3000
 ```
 
+### 自测验证
+
+仓库内置了商城项目 E2E 测试，复用 [ewan-kb](https://github.com/Ewan-Jone/ewan-kb) 的商城 fixture 构建知识库，然后验证 server 全部功能：
+
+```bash
+# 先构建商城知识库（需要 ANTHROPIC_API_KEY）
+cd ../ewan-kb
+KEEP_OUTPUT=1 pytest tests/test_mall_e2e.py -v
+
+# 再运行 server 测试
+cd ../ewan-kb-server
+pytest tests/test_mall_server_e2e.py -v
+```
+
+测试覆盖：KBManager 加载 → list_kbs → query_graph（图谱查询）→ query_graph verbose（结构化 JSON）→ query_kb（文档检索）→ KeyError 处理。
+
+测试会自动检测 `/tmp/ewankb_test_mall/` 下已有的知识库，如果之前已构建则直接复用，无需重复调用 LLM。
+
 ## 重建知识库
 
 用 `ewankb build` 更新知识库后，重启服务即可重新加载：
