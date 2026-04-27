@@ -16,10 +16,10 @@ def config_dir() -> Path:
     return base / "ewankb-server"
 
 
-def _resolve_path(config_path: Path | None, env_var: str, default_name: str) -> Path:
+def _resolve_path(config_path: Path | None = None, env_var: str = "", default_name: str = "") -> Path:
     """Resolve a config file path: explicit arg > env var > default location."""
     if config_path is not None:
-        return config_path
+        return Path(config_path) if isinstance(config_path, str) else config_path
     env_path = os.environ.get(env_var, "")
     if env_path:
         return Path(env_path)
