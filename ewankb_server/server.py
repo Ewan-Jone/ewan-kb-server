@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from typing import Any
 
 from fastmcp import FastMCP
@@ -181,12 +180,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--transport",
-        default="stdio",
-        choices=["stdio", "http"],
-        help="Transport mode: 'stdio' for MCP (default), 'http' for HTTP debug server",
+        default="sse",
+        choices=["sse", "http"],
+        help="Transport mode: 'sse' for MCP SSE (default), 'http' for Streamable HTTP MCP",
     )
     parser.add_argument("--port", type=int, default=3000, help="HTTP port (default: 3000)")
-    parser.add_argument("--host", default="127.0.0.1", help="HTTP host (default: 127.0.0.1)")
+    parser.add_argument("--host", default="0.0.0.0", help="HTTP host (default: 0.0.0.0)")
     parser.add_argument("--config", type=str, default=None, help="System config file path")
     parser.add_argument("--kbs", type=str, default=None, help="KB registry file path")
     args = parser.parse_args()
@@ -206,11 +205,12 @@ def main() -> None:
     port = settings.get("port", args.port)
     host = settings.get("host", args.host)
 
-    if args.transport == "http":
-        print(f"Starting HTTP server on {host}:{port}", flush=True)
-        mcp.run(transport="http", host=host, port=port)
-    else:
-        mcp.run(transport="stdio")
+    if args.transport == "sse":
+        print(f"Starting MCP SSE server on {host}:{port}", flush=True)
+        mcp.run(transport="sse", host=host, port=port)
+    elif args.transport == "http":
+        print(f"Starting MCP Streamable HTTP server on {host}:{port}", flush=True)
+        mcp.run(transport="streamable-http", host=host, port=port)
 
 
 if __name__ == "__main__":
