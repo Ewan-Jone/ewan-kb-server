@@ -10,7 +10,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ewankb_server.config import load_config, get_server_settings, get_kb_entries
+from ewankb_server.config import load_server_config, get_server_settings, load_kb_registry
 from ewankb_server.context import KBManager
 
 
@@ -120,8 +120,9 @@ async def http_query_graph(request: Request) -> JSONResponse:
     try:
         mgr = _get_manager()
         ctx = mgr.get(kb)
-        result = ctx.query_graph(query_text, traversal=traversal, max_nodes=max_nodes)
-        return JSONResponse({"result": result, "kb": kb})
+        result = ctx.query_graph(query_text, traversal=traversal, max_nodes=max_nodes, verbose=True)
+        result["kb"] = kb
+        return JSONResponse(result)
     except KeyError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
     except Exception as e:
@@ -186,14 +187,15 @@ def main() -> None:
     )
     parser.add_argument("--port", type=int, default=3000, help="HTTP port (default: 3000)")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP host (default: 127.0.0.1)")
-    parser.add_argument("--config", type=str, default=None, help="Config file path")
+    parser.add_argument("--config", type=str, default=None, help="System config file path")
+    parser.add_argument("--kbs", type=str, default=None, help="KB registry file path")
     args = parser.parse_args()
 
     # Load config and initialize KBs
     global manager
-    config = load_config(args.config)
+    config = load_server_config(args.config)
     settings = get_server_settings(config)
-    kb_entries = get_kb_entries(config)
+    kb_entries = load_kb_registry(args.kbs)
 
     manager = KBManager()
     print(f"Loading {len(kb_entries)} knowledge base(s)...", flush=True)

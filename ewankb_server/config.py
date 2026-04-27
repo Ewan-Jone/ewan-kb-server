@@ -1,16 +1,10 @@
-"""Server configuration — loads config.toml from ~/.config/ewankb-server/."""
+"""Server configuration — loads system config and KB registry from separate JSON files."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
-
-import sys
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 
 def config_dir() -> Path:
@@ -22,43 +16,61 @@ def config_dir() -> Path:
     return base / "ewankb-server"
 
 
-def load_config(config_path: Path | None = None) -> dict[str, Any]:
-    """Load server configuration from TOML file.
+def _resolve_path(config_path: Path | None, env_var: str, default_name: str) -> Path:
+    """Resolve a config file path: explicit arg > env var > default location."""
+    if config_path is not None:
+        return config_path
+    env_path = os.environ.get(env_var, "")
+    if env_path:
+        return Path(env_path)
+    return config_dir() / default_name
+
+
+def load_server_config(config_path: Path | None = None) -> dict[str, Any]:
+    """Load system-level configuration (port, host, etc.).
 
     Search order:
       1. Explicit config_path argument
       2. EWANKB_SERVER_CONFIG env var
-      3. ~/.config/ewankb-server/config.toml
+      3. ~/.config/ewankb-server/config.json
+
+    Returns empty dict if file not found (server has sensible defaults).
     """
-    if config_path is None:
-        env_path = os.environ.get("EWANKB_SERVER_CONFIG", "")
-        if env_path:
-            config_path = Path(env_path)
-        else:
-            config_path = config_dir() / "config.toml"
+    path = _resolve_path(config_path, "EWANKB_SERVER_CONFIG", "config.json")
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
-    if not config_path.exists():
+
+def load_kb_registry(kbs_path: Path | None = None) -> list[dict[str, Any]]:
+    """Load KB registry from a separate JSON file.
+
+    Search order:
+      1. Explicit kbs_path argument
+      2. EWANKB_SERVER_KBS env var
+      3. ~/.config/ewankb-server/kbs.json
+
+    Raises FileNotFoundError if KB registry file not found.
+    """
+    path = _resolve_path(kbs_path, "EWANKB_SERVER_KBS", "kbs.json")
+    if not path.exists():
         raise FileNotFoundError(
-            f"Config file not found: {config_path}\n"
-            f"Create one with: cp config.example.toml {config_path}"
+            f"KB registry file not found: {path}\n"
+            f"Create one with: cp kbs.example.json {path}\n"
+            f"Or specify path via --kbs CLI arg or EWANKB_SERVER_KBS env var"
         )
-
-    with open(config_path, "rb") as f:
-        return tomllib.load(f)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    entries = []
+    for entry in data.get("kbs", []):
+        entries.append({
+            "name": entry.get("name", ""),
+            "dir": entry.get("dir", ""),
+        })
+    return entries
 
 
 def get_server_settings(config: dict[str, Any]) -> dict[str, Any]:
     """Extract server-level settings from config."""
     return config.get("server", {})
-
-
-def get_kb_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract KB entries from config, returning list of {name, dir} dicts."""
-    kbs = config.get("kbs", {})
-    entries = []
-    for key, val in kbs.items():
-        entries.append({
-            "name": val.get("name", key),
-            "dir": val.get("dir", ""),
-        })
-    return entries

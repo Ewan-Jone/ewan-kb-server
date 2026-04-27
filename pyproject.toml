@@ -24,7 +24,7 @@ classifiers = [
 dependencies = [
     "ewankb>=0.1.5",
     "fastmcp>=2.0",
-    'tomli>=2.0; python_version < "3.11"',
+    "starlette>=0.30.0",
 ]
 
 [project.scripts]

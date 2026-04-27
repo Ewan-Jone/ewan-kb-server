@@ -29,7 +29,7 @@ KB_OUTPUT_DIR = Path("/tmp/ewankb_test_mall")
 
 def _reset_config_caches():
     """Reset config_loader singleton caches so EWANKB_DIR is re-read."""
-    import tools.config_loader as cfg
+    import ewankb.tools.config_loader as cfg
     cfg._global_cfg = None
     cfg._project_cfg = None
     cfg._llm_cfg = None
@@ -84,9 +84,7 @@ def _build_kb_if_needed():
     _reset_config_caches()
 
     # Add ewankb root to sys.path so tools/ is importable
-    sys.path.insert(0, str(EWANKB_ROOT))
-
-    from tools.config_loader import create_project_config, get_global_config
+    from ewankb.tools.config_loader import create_project_config, get_global_config
 
     gcfg = get_global_config()
     create_project_config(KB_OUTPUT_DIR, "商城项目业务知识库")
@@ -137,7 +135,7 @@ def _build_kb_if_needed():
     _reset_config_caches()
     os.chdir(KB_OUTPUT_DIR)
 
-    from tools.discover.discover_domains import discover
+    from ewankb.tools.discover.discover_domains import discover
     discover(KB_OUTPUT_DIR, use_ai=True)
 
     _reset_config_caches()
@@ -145,7 +143,7 @@ def _build_kb_if_needed():
     cmd_knowledgebase(skip_discover=True)
 
     _reset_config_caches()
-    from tools.build_graph.graph_builder import build_graph
+    from ewankb.tools.build_graph.graph_builder import build_graph
     build_graph(
         source_dir=KB_OUTPUT_DIR / "source",
         domains_dir=KB_OUTPUT_DIR / "domains",
