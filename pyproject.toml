@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ewan-kb-server"
-version = "0.1.1"
+version = "0.1.2"
 description = "Query server for ewankb knowledge bases — MCP + HTTP interface."
 readme = "README.md"
 license = "MIT"
@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "ewankb>=0.1.5",
+    "ewankb>=0.1.6",
     "fastmcp>=2.0",
     "starlette>=0.30.0",
 ]
