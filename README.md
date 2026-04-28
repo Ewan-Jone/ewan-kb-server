@@ -130,6 +130,27 @@ Claude Code 配置：
 
 ### Docker 部署
 
+**方式一：下载预构建镜像（推荐）**
+
+从 [GitHub Release](https://github.com/Ewan-Jone/ewan-kb-server/releases) 下载镜像文件：
+
+```bash
+# 下载镜像（约 125MB）
+wget https://github.com/Ewan-Jone/ewan-kb-server/releases/download/v0.1.2/ewankb-server-0.1.2.tar.gz
+
+# 加载镜像
+docker load -i ewankb-server-0.1.2.tar.gz
+
+# 运行
+docker run -d \
+  -v /path/to/config:/config \
+  -v /path/to/kbs:/data \
+  -p 3000:3000 \
+  ewankb-server:0.1.2
+```
+
+**方式二：自行构建**
+
 ```bash
 docker build -t ewankb-server .
 
@@ -139,6 +160,13 @@ docker run -d \
   -p 3000:3000 \
   ewankb-server
 ```
+
+**Docker 挂载说明**
+
+需要准备两个目录挂载到容器：
+
+1. `/config` — 包含 `config.json` 和 `kbs.json`
+2. `/data` — 知识库数据目录
 
 其中 `kbs.json` 里 `dir` 字段写容器内的挂载路径（如 `/data/wms-kb`）：
 
@@ -150,6 +178,17 @@ docker run -d \
       "dir": "/data/wms-kb"
     }
   ]
+}
+```
+
+`config.json` 中 `host` 必须设为 `0.0.0.0`（否则容器内绑定 127.0.0.1，外部无法访问）：
+
+```json
+{
+  "server": {
+    "port": 3000,
+    "host": "0.0.0.0"
+  }
 }
 ```
 
