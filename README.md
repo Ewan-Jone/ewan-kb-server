@@ -8,8 +8,8 @@ ewankb 的查询目前通过 CLI 子进程调用，每次启动都要重新加�
 
 ## 架构
 
-- **MCP 服务** — 主要接口，通过 SSE 或 Streamable HTTP 对外提供 MCP 工具（`query_graph`、`query_kb`、`list_kbs`）。
-- **HTTP 端点** — REST 调试接口（`/query/graph`、`/query/kb`、`/kbs`、`/health`），方便 curl / 浏览器测试。
+- **MCP 服务** — 主要接口，通过 SSE 或 Streamable HTTP 对外提供 MCP 工具（`query_graph`、`query_kb`、`list_kbs`、`search_source`、`read_source_file`）。
+- **HTTP 端点** — REST 调试接口（`/query/graph`、`/query/kb`、`/kbs`、`/health`、`/search/source`、`/read/source`），方便 curl / 浏览器测试。
 - **多 KB 支持** — 同时服务多个知识库。每个 KB 启动时预加载图谱和 BM25 索引，查询时通过 `kb` 参数指定目标。
 - **构建仍用 CLI** — 知识库构建继续用 `ewankb build`，构建完成后重启 server 即可重新加载。
 
@@ -206,6 +206,12 @@ curl "http://localhost:3000/query/graph?text=付款额度怎么计算&kb=default
 # 文档检索
 curl "http://localhost:3000/query/kb?text=付款额度&kb=default&domain=收付款管理"
 
+# 源代码搜索
+curl "http://localhost:3000/search/source?text=OrderService&kb=default&glob=*.java"
+
+# 读取源文件
+curl "http://localhost:3000/read/source?kb=default&path=repos/service/OrderService.java&start_line=1&end_line=50"
+
 # 健康检查
 curl http://localhost:3000/health
 ```
@@ -236,9 +242,35 @@ curl http://localhost:3000/health
 | max_results | int | 8 | 最大返回文档数 |
 | domain | string | "" | 可选，按域过滤 |
 
+### search_source
+
+在知识库的 `source/` 目录中搜索源代码文件（大小写不敏感）。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| query_text | string | 必填 | 搜索文本 |
+| kb | string | "default" | 知识库名称 |
+| glob | string | "*" | 文件过滤 pattern（如 `*.java`、`*.vue`） |
+| max_results | int | 50 | 最大返回匹配行数 |
+
+返回匹配的文件路径、行号和行内容摘要。
+
+### read_source_file
+
+读取知识库中的源文件内容（带行号）。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| kb | string | 必填 | 知识库名称 |
+| path | string | 必填 | 相对于 `source/` 的文件路径 |
+| start_line | int | 1 | 起始行号（1-based） |
+| end_line | int | 0 | 结束行号（0 = 读到文件末尾） |
+
+内置路径穿越防护，拒绝 `..` 等越权访问。
+
 ### list_kbs
 
-列出所有可用知识库及其状态（节点数、边数、文档数）。
+列出所有可用的知识库及其状态（节点数、边数、文档数）。
 
 ## 开发
 
@@ -247,6 +279,8 @@ cd ewan-kb-server
 pip install -e .
 ewankb-server
 ```
+
+测试覆盖：KBManager 加载 → list_kbs → query_graph（图谱查询）→ query_graph verbose（结构化 JSON）→ query_kb（文档检索）→ search_source（源代码搜索）→ read_source_file（文件读取）→ KeyError 处理。
 
 ### 自测验证
 
@@ -278,6 +312,29 @@ ewankb build
 # 重启服务
 ewankb-server
 ```
+
+## 日志
+
+Server 启动后会在控制台和日志文件中同时输出。
+
+| CLI 参数 | 默认值 | 说明 |
+|----------|--------|------|
+| `--log-level` | `INFO` | 日志级别：`DEBUG`、`INFO`、`WARNING`、`ERROR` |
+| `--log-file` | `~/.config/ewankb-server/server.log` | 日志文件路径 |
+| `--log-format` | `text` | `text`（人可读）或 `json`（机器解析） |
+
+日志文件采用滚动策略（单文件 10MB，保留 5 个备份），日志目录自动创建。
+
+### 两种日志来源
+
+每次请求产生两条日志，帮助评估网络带宽开销：
+
+| logger | 含义 | 示例 |
+|--------|------|------|
+| `ewankb-server` | 服务端内部处理耗时（不含网络） | `search_source \| kb=mall ... time=14ms output=878B` |
+| `ewankb-server.access` | 端到端耗时（含网络传输） | `GET /search/source -> 200 \| total=15ms body=909B` |
+
+两行的 `total - time` 差值 ≈ 网络传输开销。
 
 ## 许可证
 
