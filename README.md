@@ -36,7 +36,7 @@ pip install ewan-kb-server
 ewankb-server
 ```
 
-默认启动 SSE MCP 服务，监听 `0.0.0.0:3000`。使用 `--transport http` 可切换到 Streamable HTTP。
+默认启动 SSE MCP 服务，监听 `0.0.0.0:22902`。使用 `--transport http` 可切换到 Streamable HTTP。
 
 ### 3. 配置 MCP 客户端
 
@@ -44,19 +44,19 @@ ewankb-server
 {
   "mcpServers": {
     "ewankb-server": {
-      "url": "http://localhost:3000/mcp"
+      "url": "http://localhost:22902/mcp"
     }
   }
 }
 ```
 
-SSE 模式下 URL 为 `http://localhost:3000/sse`。
+SSE 模式下 URL 为 `http://localhost:22902/sse`。
 
 ## CLI 参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--port` | `3000` | HTTP 端口 |
+| `--port` | `22902` | HTTP 端口 |
 | `--host` | `0.0.0.0` | 绑定地址 |
 | `--transport` | `sse` | `sse` 或 `http`（Streamable HTTP） |
 | `--config` | — | 配置文件路径，格式见下 |
@@ -70,7 +70,7 @@ SSE 模式下 URL 为 `http://localhost:3000/sse`。
 ```json
 {
   "server": {
-    "port": 3000,
+    "port": 22902,
     "host": "0.0.0.0"
   }
 }
@@ -134,30 +134,54 @@ BM25 关键词检索知识库文档。
 
 ```bash
 # 可用知识库
-curl http://localhost:3000/kbs
+curl http://localhost:22902/kbs
 
 # 图谱查询
-curl "http://localhost:3000/query/graph?text=付款额度&kb=mall"
+curl "http://localhost:22902/query/graph?text=付款额度&kb=mall"
 
 # 文档检索
-curl "http://localhost:3000/query/kb?text=付款额度&kb=mall"
+curl "http://localhost:22902/query/kb?text=付款额度&kb=mall"
 
 # 源代码搜索
-curl "http://localhost:3000/search/source?text=OrderService&kb=mall&glob=*.java"
+curl "http://localhost:22902/search/source?text=OrderService&kb=mall&glob=*.java"
 
 # 读取源文件
-curl "http://localhost:3000/read/source?kb=mall&path=repos/service/OrderService.java&start_line=1&end_line=50"
+curl "http://localhost:22902/read/source?kb=mall&path=repos/service/OrderService.java&start_line=1&end_line=50"
 
 # 健康检查
-curl http://localhost:3000/health
+curl http://localhost:22902/health
 ```
+
+## Claude Code 集成
+
+项目自带 `/ewankb-server-query` skill，让 Claude Code 通过 MCP 直接查询远端知识库，无需在本地安装 ewankb 或拉取知识库代码。
+
+### 安装 Skill
+
+将 `.claude/skills/ewankb-server-query/` 复制到 `~/.claude/skills/ewankb-server-query/`：
+
+```bash
+cp -r .claude/skills/ewankb-server-query ~/.claude/skills/
+```
+
+### 使用
+
+```
+/ewankb-server-query <问题>                          # 图谱查询（默认）
+/ewankb-server-query graph <kb> <问题>               # 图谱查询（指定 KB）
+/ewankb-server-query kb <kb> <问题>                  # 文档检索
+/ewankb-server-query deep <kb> <问题>                # 双路对比（图谱 + 文档 + 代码穿透）
+/ewankb-server-query list                            # 列出所有可用 KB
+```
+
+Skill 会自动检测 MCP 配置是否正确，未配置时给出引导。查询结束后自动执行代码穿透，通过 `search_source` + `read_source_file` 验证规格与实现的一致性。
 
 ## Docker
 
 ```bash
 docker run -d \
   -v /path/to/ewankb:/data \
-  -p 3000:3000 \
+  -p 22902:22902 \
   ewankb-server
 ```
 

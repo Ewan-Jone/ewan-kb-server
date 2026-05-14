@@ -350,7 +350,7 @@ def main() -> None:
         choices=["sse", "http"],
         help="Transport mode: 'sse' for MCP SSE (default), 'http' for Streamable HTTP MCP",
     )
-    parser.add_argument("--port", type=int, default=3000, help="HTTP port (default: 3000)")
+    parser.add_argument("--port", type=int, default=22902, help="HTTP port (default: 22902)")
     parser.add_argument("--host", default="0.0.0.0", help="HTTP host (default: 0.0.0.0)")
     parser.add_argument("--config", type=str, default=None,
                         help="System config file path (default: ~/.config/ewankb-server/config.json)")
