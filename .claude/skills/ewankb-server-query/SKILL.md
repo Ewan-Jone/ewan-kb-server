@@ -43,9 +43,7 @@ trigger: /ewankb-server-query
 
    SSE 模式使用 "http://<server-host>:22902/sse"
 
-3. 重启 Claude Code 使配置生效
-
-4. 再次运行 /ewankb-server-query list 确认连接成功
+3. 保存后再次运行 /ewankb-server-query list 确认连接成功
 
 如果没有搭建过 ewan-kb-server 服务，参考：https://github.com/Ewan-Jones/ewan-kb-server
 ```
@@ -191,7 +189,7 @@ search_source(query_text="技术术语", kb="目标kb", glob="*.java", max_resul
 如果搜索结果中包含关键文件，用 `read_source_file` 深入阅读：
 
 ```
-read_source_file(kb="目标kb", path="source/repos/.../KeyFile.java", start_line=1, end_line=0)
+read_source_file(kb="目标kb", path="repos/.../KeyFile.java", start_line=1, end_line=0)
 ```
 
 **步骤 3：补充回答**
