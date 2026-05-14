@@ -1,8 +1,10 @@
 # ewan-kb-server
 
-[ewankb](https://github.com/Ewan-Jones/ewan-kb) 知识库的 MCP 查询服务。将知识图谱和 BM25 索引常驻内存，消除 CLI 冷启动开销，提供亚秒级查询。
+[ewankb](https://github.com/Ewan-Jones/ewan-kb) 知识库的 MCP 查询服务。将知识图谱和 BM25 索引常驻内存，消除每次 CLI 调用的冷启动开销。
 
 ## 安装
+
+Python 3.10+，无需其他系统依赖。
 
 ```bash
 pip install ewan-kb-server
@@ -10,9 +12,9 @@ pip install ewan-kb-server
 
 ## 快速开始
 
-**1. 注册知识库**
+### 1. 注册知识库
 
-在 `~/.ewankb/kb_registry.json` 中注册要服务的知识库（与 ewankb-hub 共用）：
+在 `~/.ewankb/kb_registry.json` 中注册要服务的知识库：
 
 ```json
 {
@@ -24,17 +26,19 @@ pip install ewan-kb-server
 }
 ```
 
-每个条目：key 为查询时的 `kb` 参数值，`dir` 为 `~/.ewankb/` 下的文件夹名（缺省等于 key）。
+- key（如 `mall`）：查询时 `kb` 参数的值
+- `dir`：`~/.ewankb/` 下的文件夹名，缺省等于 key
+- `name` / `description`：可选，用于展示
 
-**2. 启动**
+### 2. 启动服务
 
 ```bash
 ewankb-server
 ```
 
-**3. 配置 MCP 客户端**
+默认启动 SSE MCP 服务，监听 `0.0.0.0:3000`。使用 `--transport http` 可切换到 Streamable HTTP。
 
-在 Claude Code 的 `settings.json` 中添加：
+### 3. 配置 MCP 客户端
 
 ```json
 {
@@ -46,20 +50,30 @@ ewankb-server
 }
 ```
 
+SSE 模式下 URL 为 `http://localhost:3000/sse`。
+
 ## CLI 参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `--port` | `3000` | HTTP 端口 |
 | `--host` | `0.0.0.0` | 绑定地址 |
-| `--transport` | `sse` | `sse` 或 `http`（streamable HTTP） |
-| `--config` | — | 系统配置文件路径（可选，格式见下） |
+| `--transport` | `sse` | `sse` 或 `http`（Streamable HTTP） |
+| `--config` | — | 配置文件路径，格式见下 |
 | `--registry` | `~/.ewankb/kb_registry.json` | KB 注册表路径 |
 | `--log-level` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-| `--log-file` | — | 日志文件路径（不传则仅控制台输出） |
+| `--log-file` | — | 日志文件路径，不传则仅输出到控制台 |
 | `--log-format` | `text` | `text` 或 `json` |
 
-`--config` 文件格式（可选）：
+`--config` 文件格式（所有字段可选，未指定则使用上表默认值）：
+
+```json
+{
+  "server": {
+    "port": 3000,
+    "host": "0.0.0.0"
+  }
+}
 ```
 
 ## MCP 工具
@@ -70,10 +84,10 @@ ewankb-server
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| query_text | string | 必填 | 自然语言或代码标识符 |
-| kb | string | `"default"` | 知识库名称 |
-| traversal | string | `"bfs"` | `"bfs"` 概览 / `"dfs"` 路径追踪 |
-| max_nodes | int | `50` | 最大访问节点数 |
+| `query_text` | string | 必填 | 查询文本 |
+| `kb` | string | `"default"` | 知识库名称 |
+| `traversal` | string | `"bfs"` | `"bfs"` 概览 / `"dfs"` 路径追踪 |
+| `max_nodes` | int | `50` | 最大访问节点数 |
 
 ### query_kb
 
@@ -81,10 +95,10 @@ BM25 关键词检索知识库文档。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| query_text | string | 必填 | 搜索关键词 |
-| kb | string | `"default"` | 知识库名称 |
-| max_results | int | `8` | 最大返回文档数 |
-| domain | string | `""` | 按域过滤（可选） |
+| `query_text` | string | 必填 | 搜索关键词 |
+| `kb` | string | `"default"` | 知识库名称 |
+| `max_results` | int | `8` | 最大返回文档数 |
+| `domain` | string | `""` | 按域过滤，可选 |
 
 ### search_source
 
@@ -92,41 +106,41 @@ BM25 关键词检索知识库文档。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| query_text | string | 必填 | 搜索文本 |
-| kb | string | `"default"` | 知识库名称 |
-| glob | string | `"*"` | 文件过滤，如 `*.java` |
-| max_results | int | `50` | 最大返回匹配行数 |
+| `query_text` | string | 必填 | 搜索文本 |
+| `kb` | string | `"default"` | 知识库名称 |
+| `glob` | string | `"*"` | 文件名过滤，如 `*.java`、`*.vue` |
+| `max_results` | int | `50` | 最大返回匹配行数 |
 
-返回文件路径、行号、匹配行摘要。
+返回文件路径、行号和匹配行摘要。
 
 ### read_source_file
 
-读取源文件内容（带行号），内置路径穿越防护。
+读取源文件内容，带行号标注。内置路径校验，拒绝越权访问。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| kb | string | 必填 | 知识库名称 |
-| path | string | 必填 | 相对于 `source/` 的文件路径 |
-| start_line | int | `1` | 起始行（1-based） |
-| end_line | int | `0` | 结束行（0 = 文件末尾） |
+| `kb` | string | 必填 | 知识库名称 |
+| `path` | string | 必填 | 相对于 `source/` 的文件路径 |
+| `start_line` | int | `1` | 起始行号 |
+| `end_line` | int | `0` | 结束行号，`0` 表示读到文件末尾 |
 
 ### list_kbs
 
-列出所有可用知识库及其状态（节点数、边数、文档数），无参数。
+列出所有可用知识库及其节点数、边数、文档数。无参数。
 
 ## HTTP 端点
 
-调试用 REST 接口，与 MCP 工具一一对应：
+以下 REST 接口用于调试，与 MCP 工具一一对应：
 
 ```bash
 # 可用知识库
 curl http://localhost:3000/kbs
 
-# 图谱查询（返回结构化 JSON）
+# 图谱查询
 curl "http://localhost:3000/query/graph?text=付款额度&kb=mall"
 
 # 文档检索
-curl "http://localhost:3000/query/kb?text=付款额度&kb=mall&domain=收付款管理"
+curl "http://localhost:3000/query/kb?text=付款额度&kb=mall"
 
 # 源代码搜索
 curl "http://localhost:3000/search/source?text=OrderService&kb=mall&glob=*.java"
@@ -147,31 +161,40 @@ docker run -d \
   ewankb-server
 ```
 
-`/data` 即 `~/.ewankb/` 目录，内含 `kb_registry.json` 和各 KB 子目录。如需额外指定端口等配置，可通过 CLI 参数或挂载 `--config` 文件。
+`/data` 对应宿主机的 `~/.ewankb/` 目录，内含 `kb_registry.json` 和各 KB 子目录。如需调整端口或其他参数，在镜像名后追加 CLI 参数即可：
+
+```bash
+docker run -d -v /path/to/ewankb:/data -p 8080:8080 ewankb-server --port 8080
+```
 
 ## 日志
 
-每次请求产生两条日志，帮助评估网络带宽开销：
+每次请求产生两条日志：
 
 ```
-[ewankb-server]        search_source | time=14.1ms output=878B     ← 内部处理耗时
-[ewankb-server.access] GET /search/source -> 200 | total=14.6ms body=909B  ← 端到端耗时（含网络）
+[ewankb-server]        search_source | time=14.1ms output=878B
+[ewankb-server.access] GET /search/source -> 200 | total=14.6ms body=909B
 ```
 
-`total - time` 的差值 ≈ 网络传输开销。默认仅控制台输出，传 `--log-file` 开启文件日志（滚动策略：10MB × 5 备份）。
+- `ewankb-server`：服务端内部处理耗时（不含网络传输）
+- `ewankb-server.access`：端到端耗时（含网络传输 + 响应体大小）
+
+两者的差值可近似评估网络传输开销。默认仅输出到控制台，通过 `--log-file` 可开启文件日志（滚动策略：单文件 10MB，保留 5 个备份）。
 
 ## 开发
 
 ```bash
+git clone https://github.com/Ewan-Jones/ewan-kb-server.git
 cd ewan-kb-server
 pip install -e .
-ewankb-server
 ```
 
 ### 测试
 
+需要同级的 `ewan-kb` 项目，先用其内置的商城 fixture 构建知识库，再运行 server 的 E2E 测试：
+
 ```bash
-# 先构建商城知识库
+# 构建商城知识库（需要 ANTHROPIC_API_KEY）
 cd ../ewan-kb
 KEEP_OUTPUT=1 pytest tests/test_mall_e2e.py -v
 
