@@ -22,6 +22,7 @@ from ewankb_server.config import load_server_config, get_server_settings, load_k
 from ewankb_server.context import KBManager, _format_size
 
 PID_FILE = Path.home() / ".ewankb" / "ewankb-server.pid"
+_IS_WINDOWS = sys.platform == "win32"
 
 _access_logger = logging.getLogger("ewankb-server.access")
 
@@ -343,6 +344,17 @@ async def http_read_source_file(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@mcp.custom_route("/_refresh", methods=["POST"])
+async def http_refresh(request: Request) -> JSONResponse:
+    """Internal endpoint: trigger full reload of registry + indexes."""
+    mgr = _get_manager()
+    try:
+        mgr.refresh()
+        return JSONResponse({"status": "ok", "message": "refresh completed"})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 # ── CLI entry point ─────────────────────────────────────────────────────────
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -365,8 +377,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="KB registry file path (default: ~/.ewankb/kb_registry.json)")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="Log level (default: INFO)")
-    parser.add_argument("--log-file", type=str, default=None,
-                        help="Log file path (no default; console-only if not set)")
+    parser.add_argument("--log-file", type=str, default=".ewan-kb-server.log",
+                        help="Log file path (default: .ewan-kb-server.log)")
     parser.add_argument("--log-format", default="text", choices=["text", "json"],
                         help="Log format: 'text' for human-readable, 'json' for machine parsing (default: text)")
     parser.add_argument("--reload-interval", type=int, default=60,
@@ -452,11 +464,11 @@ def _run_server(args: argparse.Namespace) -> None:
     manager.load_all(kb_entries, registry_path=registry_path)
     print(f"Ready. {len(manager.contexts)} KB(s) loaded.", flush=True)
 
-    # Register SIGUSR1 handler for manual refresh
-    def _on_refresh(signum, frame):
-        manager.refresh()
-
-    signal.signal(signal.SIGUSR1, _on_refresh)
+    # Register SIGUSR1 handler for manual refresh (Unix only)
+    if not _IS_WINDOWS:
+        def _on_refresh(signum, frame):
+            manager.refresh()
+        signal.signal(signal.SIGUSR1, _on_refresh)
 
     port = settings.get("port", args.port)
     host = settings.get("host", args.host)
@@ -483,7 +495,7 @@ def _cmd_start(args: argparse.Namespace) -> None:
         PID_FILE.unlink(missing_ok=True)
 
     # Build args for the child process (strip any subcommand so child runs in foreground)
-    _SUBCOMMANDS = {"start", "stop", "restart"}
+    _SUBCOMMANDS = {"start", "stop", "restart", "refresh"}
     child_argv = [sys.executable, "-m", "ewankb_server.server"]
     for arg in sys.argv[1:]:
         if arg in _SUBCOMMANDS:
@@ -494,24 +506,38 @@ def _cmd_start(args: argparse.Namespace) -> None:
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     # Spawn detached child process
-    child = subprocess.Popen(
-        child_argv,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    popen_kwargs: dict[str, Any] = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
+    }
+    if _IS_WINDOWS:
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    else:
+        popen_kwargs["start_new_session"] = True
 
-    PID_FILE.write_text(str(child.pid))
+    child = subprocess.Popen(child_argv, **popen_kwargs)
+
+    PID_FILE.write_text(json.dumps({"pid": child.pid, "port": args.port, "host": args.host}))
     print(f"Server started (PID: {child.pid}, port: {args.port})")
+
+
+def _read_pid_info() -> dict[str, Any] | None:
+    """Read PID info from PID file. Returns None if file missing or corrupt."""
+    try:
+        info = json.loads(PID_FILE.read_text().strip())
+        if isinstance(info, dict) and "pid" in info:
+            return info
+        # Legacy format: plain PID
+        return {"pid": int(PID_FILE.read_text().strip())}
+    except (FileNotFoundError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def _read_pid() -> int | None:
     """Read PID from PID file. Returns None if file missing or corrupt."""
-    try:
-        return int(PID_FILE.read_text().strip())
-    except (FileNotFoundError, ValueError):
-        return None
+    info = _read_pid_info()
+    return info["pid"] if info else None
 
 
 def _is_running(pid: int) -> bool:
@@ -521,6 +547,17 @@ def _is_running(pid: int) -> bool:
         return True
     except OSError:
         return False
+
+
+def _kill_process(pid: int, force: bool = False) -> None:
+    """Kill a process. Uses SIGTERM (or taskkill on Windows)."""
+    if _IS_WINDOWS:
+        flag = "/F" if force else ""
+        subprocess.run(["taskkill", "/PID", str(pid), flag] if flag else ["taskkill", "/PID", str(pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        sig = signal.SIGKILL if force else signal.SIGTERM
+        os.kill(pid, sig)
 
 
 def _cmd_stop() -> None:
@@ -535,8 +572,7 @@ def _cmd_stop() -> None:
         PID_FILE.unlink(missing_ok=True)
         sys.exit(0)
 
-    # Send SIGTERM, wait gracefully
-    os.kill(pid, signal.SIGTERM)
+    _kill_process(pid)
     print(f"Stopping server (PID: {pid})...", end=" ", flush=True)
 
     for _ in range(50):  # 5 seconds with 0.1s intervals
@@ -548,11 +584,8 @@ def _cmd_stop() -> None:
 
     # Force kill if still alive
     print("timeout, force killing...", end=" ", flush=True)
-    try:
-        os.kill(pid, signal.SIGKILL)
-        time.sleep(0.5)
-    except OSError:
-        pass
+    _kill_process(pid, force=True)
+    time.sleep(0.5)
     print("stopped")
     PID_FILE.unlink(missing_ok=True)
 
@@ -567,17 +600,34 @@ def _cmd_restart(args: argparse.Namespace) -> None:
 
 
 def _cmd_refresh() -> None:
-    """Send SIGUSR1 to trigger a full reload in the running server."""
-    pid = _read_pid()
-    if pid is None:
+    """Send a refresh request to the running server via HTTP."""
+    info = _read_pid_info()
+    if info is None:
         print("No PID file found. Server is not running.")
         sys.exit(1)
+
+    pid = info["pid"]
     if not _is_running(pid):
         print(f"PID {pid} is not running. Removing stale PID file.")
         PID_FILE.unlink(missing_ok=True)
         sys.exit(1)
-    os.kill(pid, signal.SIGUSR1)
-    print(f"Refresh signal sent to server (PID: {pid})")
+
+    port = info.get("port", 22902)
+    host = info.get("host", "127.0.0.1")
+    if host == "0.0.0.0":
+        host = "127.0.0.1"
+
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"http://{host}:{port}/_refresh", method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode()
+            print(f"Refresh response: {body}")
+    except Exception as e:
+        print(f"Failed to refresh server: {e}")
+        sys.exit(1)
 
 
 def main() -> None:
@@ -592,7 +642,7 @@ def main() -> None:
     start_parser.add_argument("--config", type=str, default=None)
     start_parser.add_argument("--registry", type=str, default=None)
     start_parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    start_parser.add_argument("--log-file", type=str, default=None)
+    start_parser.add_argument("--log-file", type=str, default=".ewan-kb-server.log")
     start_parser.add_argument("--log-format", default="text", choices=["text", "json"])
     start_parser.add_argument("--reload-interval", type=int, default=60)
     start_parser.add_argument("--index-reload-interval", type=int, default=600)
@@ -607,7 +657,7 @@ def main() -> None:
     restart_parser.add_argument("--config", type=str, default=None)
     restart_parser.add_argument("--registry", type=str, default=None)
     restart_parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    restart_parser.add_argument("--log-file", type=str, default=None)
+    restart_parser.add_argument("--log-file", type=str, default=".ewan-kb-server.log")
     restart_parser.add_argument("--log-format", default="text", choices=["text", "json"])
     restart_parser.add_argument("--reload-interval", type=int, default=60)
     restart_parser.add_argument("--index-reload-interval", type=int, default=600)
