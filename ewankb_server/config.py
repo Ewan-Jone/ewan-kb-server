@@ -69,7 +69,12 @@ def load_kb_registry(registry_path: Path | None = None) -> list[dict[str, Any]]:
         kb_dir = Path(dir_name)
         if not kb_dir.is_absolute():
             kb_dir = global_dir / dir_name
-        entries.append({"name": key, "dir": str(kb_dir)})
+        entries.append({
+            "name": key,
+            "dir": str(kb_dir),
+            "display_name": entry.get("name", ""),
+            "description": entry.get("description", ""),
+        })
     return entries
 
 

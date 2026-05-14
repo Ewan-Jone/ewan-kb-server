@@ -40,7 +40,12 @@ ewankb-server
 ewankb-server start
 ```
 
-默认启动 SSE MCP 服务，监听 `0.0.0.0:22902`。使用 `--transport http` 可切换到 Streamable HTTP。
+默认启动 SSE 和 Streamable HTTP 双协议，监听 `0.0.0.0:22902`。
+
+- SSE 端点：`http://localhost:22902/sse`
+- Streamable HTTP 端点：`http://localhost:22902/mcp`
+
+使用 `--transport sse` 或 `--transport http` 可切换到单协议。
 
 ### 3. 停止与重启
 
@@ -53,6 +58,20 @@ ewankb-server restart    # 重启后台服务（保留原有参数）
 
 ### 4. 配置 MCP 客户端
 
+SSE 模式：
+
+```json
+{
+  "mcpServers": {
+    "ewankb-server": {
+      "url": "http://localhost:22902/sse"
+    }
+  }
+}
+```
+
+Streamable HTTP 模式：
+
 ```json
 {
   "mcpServers": {
@@ -63,14 +82,12 @@ ewankb-server restart    # 重启后台服务（保留原有参数）
 }
 ```
 
-SSE 模式下 URL 为 `http://localhost:22902/sse`。
-
 ## CLI 参数
 
 ### 子命令
 
 | 命令 | 说明 |
-|------|------|
+|------|------| 
 | *(无)* | 前台运行（默认） |
 | `start` | 后台启动 |
 | `stop` | 停止后台进程 |
@@ -85,11 +102,11 @@ SSE 模式下 URL 为 `http://localhost:22902/sse`。
 |------|--------|------|
 | `--port` | `22902` | HTTP 端口 |
 | `--host` | `0.0.0.0` | 绑定地址 |
-| `--transport` | `sse` | `sse` 或 `http`（Streamable HTTP） |
+| `--transport` | `both` | `sse` / `http` / `both` |
 | `--config` | — | 配置文件路径，格式见下 |
 | `--registry` | `~/.ewankb/kb_registry.json` | KB 注册表路径 |
 | `--log-level` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-| `--log-file` | — | 日志文件路径，不传则仅输出到控制台 |
+| `--log-file` | `.ewan-kb-server.log` | 日志文件路径 |
 | `--log-format` | `text` | `text` 或 `json` |
 | `--reload-interval` | `60` | 注册表自动重载间隔（秒），设为 0 禁用 |
 | `--index-reload-interval` | `600` | 图谱/BM25 索引自动重载间隔（秒），设为 0 禁用 |

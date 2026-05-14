@@ -32,6 +32,7 @@ class KBManager:
 
     def __init__(self, reload_interval: int = 60, index_reload_interval: int = 600) -> None:
         self.contexts: dict[str, KBContext] = {}
+        self._meta: dict[str, dict[str, str]] = {}  # name -> {display_name, description}
         self._lock = threading.Lock()
         self._registry_path: Path | None = None
         self._reload_interval = reload_interval
@@ -45,7 +46,7 @@ class KBManager:
         """Pre-load all configured KBs (graph + BM25 index).
 
         Args:
-            kb_entries: List of {"name": str, "dir": str} dicts from config.
+            kb_entries: List of {"name": str, "dir": str, "display_name": str, "description": str} dicts.
             registry_path: Path to kb_registry.json for auto-reload.
         """
         for entry in kb_entries:
@@ -57,6 +58,10 @@ class KBManager:
             if not kb_dir.exists():
                 print(f"Warning: KB directory '{kb_dir}' not found, skipping '{name}'", flush=True)
                 continue
+            self._meta[name] = {
+                "display_name": entry.get("display_name", ""),
+                "description": entry.get("description", ""),
+            }
             self._load_one(name, kb_dir)
 
         self._stop_event.clear()
@@ -102,6 +107,7 @@ class KBManager:
         """Remove a KB from contexts (caller must hold lock)."""
         if name in self.contexts:
             del self.contexts[name]
+            self._meta.pop(name, None)
             print(f"Unloaded KB '{name}'", flush=True)
 
     def _reload_loop(self) -> None:
@@ -137,6 +143,10 @@ class KBManager:
                         if entry["name"] in added:
                             kb_dir = Path(entry.get("dir", ""))
                             if kb_dir.exists():
+                                self._meta[entry["name"]] = {
+                                    "display_name": entry.get("display_name", ""),
+                                    "description": entry.get("description", ""),
+                                }
                                 self._load_one(entry["name"], kb_dir)
                             else:
                                 print(f"Warning: KB '{entry['name']}' dir not found: {kb_dir}, skipping",
@@ -176,6 +186,10 @@ class KBManager:
                             if entry["name"] in added:
                                 kb_dir = Path(entry.get("dir", ""))
                                 if kb_dir.exists():
+                                    self._meta[entry["name"]] = {
+                                        "display_name": entry.get("display_name", ""),
+                                        "description": entry.get("description", ""),
+                                    }
                                     self._load_one(entry["name"], kb_dir)
 
         # Reload all graph/BM25 indexes
@@ -230,7 +244,15 @@ class KBManager:
     def list_kbs(self) -> list[dict[str, Any]]:
         """Return summary info for all loaded KBs."""
         with self._lock:
-            return [ctx.info() for ctx in self.contexts.values()]
+            result = []
+            for name, ctx in self.contexts.items():
+                info = ctx.info()
+                meta = self._meta.get(name, {})
+                info["name"] = name
+                info["display_name"] = meta.get("display_name", "")
+                info["description"] = meta.get("description", "")
+                result.append(info)
+            return result
 
     # ── Source file search & read ────────────────────────────────────────────
 

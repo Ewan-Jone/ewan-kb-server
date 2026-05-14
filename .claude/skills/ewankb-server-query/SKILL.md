@@ -37,11 +37,11 @@ trigger: /ewankb-server-query
 
    "mcpServers": {
      "ewankb-server": {
-       "url": "http://<server-host>:22902/mcp"
+       "url": "http://<server-host>:22902/sse"
      }
    }
 
-   SSE 模式使用 "http://<server-host>:22902/sse"
+   Streamable HTTP 模式使用 "http://<server-host>:22902/mcp"
 
 3. 保存后再次运行 /ewankb-server-query list 确认连接成功
 

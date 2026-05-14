@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import logging.handlers
@@ -10,12 +11,18 @@ import signal
 import subprocess
 import sys
 import time
+
+# Windows: force SelectorEventLoop to avoid SSE socket leak (IOCP shutdown race).
+if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.routing import Mount
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ewankb_server.config import load_server_config, get_server_settings, load_kb_registry
@@ -139,14 +146,15 @@ def query_kb(
 def list_kbs() -> str:
     """List all available knowledge bases with their status.
 
-    Returns a summary of each loaded KB: directory, graph nodes/edges, document count.
+    Returns a summary of each loaded KB: name, description, graph nodes/edges, document count.
     """
     mgr = _get_manager()
     kbs = mgr.list_kbs()
     lines = []
     for info in kbs:
+        desc = f" — {info['description']}" if info.get("description") else ""
         lines.append(
-            f"- {info['project_name']}: {info['graph_nodes']} nodes, "
+            f"- {info['name']}{desc}: {info['graph_nodes']} nodes, "
             f"{info['graph_edges']} edges, {info['bm25_docs']} docs "
             f"(dir: {info['kb_dir']})"
         )
@@ -365,9 +373,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--transport",
-        default="sse",
-        choices=["sse", "http"],
-        help="Transport mode: 'sse' for MCP SSE (default), 'http' for Streamable HTTP MCP",
+        default="both",
+        choices=["sse", "http", "both"],
+        help="Transport mode: 'sse', 'http' (Streamable HTTP), 'both' (default)",
     )
     parser.add_argument("--port", type=int, default=22902, help="HTTP port (default: 22902)")
     parser.add_argument("--host", default="0.0.0.0", help="HTTP host (default: 0.0.0.0)")
@@ -473,11 +481,20 @@ def _run_server(args: argparse.Namespace) -> None:
     port = settings.get("port", args.port)
     host = settings.get("host", args.host)
 
-    transport = "sse" if args.transport == "sse" else "streamable-http"
-    label = "SSE" if args.transport == "sse" else "Streamable HTTP"
+    if args.transport == "both":
+        routes = [
+            Mount("/sse", app=mcp.http_app(transport="sse")),
+            Mount("/mcp", app=mcp.http_app(transport="streamable-http")),
+        ]
+        app: ASGIApp = Starlette(routes=routes)
+        label = "SSE + Streamable HTTP"
+        app.add_middleware(AccessLogMiddleware)
+    else:
+        transport = "sse" if args.transport == "sse" else "streamable-http"
+        label = "SSE" if args.transport == "sse" else "Streamable HTTP"
+        app = mcp.http_app(transport=transport)
+        app.add_middleware(AccessLogMiddleware)
 
-    app = mcp.http_app(transport=transport)
-    app.add_middleware(AccessLogMiddleware)
     logging.getLogger("ewankb-server").info("Access log middleware enabled")
 
     print(f"Starting MCP {label} server on {host}:{port}", flush=True)
@@ -636,7 +653,7 @@ def main() -> None:
 
     start_parser = sub.add_parser("start", help="Start server in background")
     # Re-add all server options for the start subcommand
-    start_parser.add_argument("--transport", default="sse", choices=["sse", "http"])
+    start_parser.add_argument("--transport", default="both", choices=["sse", "http", "both"])
     start_parser.add_argument("--port", type=int, default=22902)
     start_parser.add_argument("--host", default="0.0.0.0")
     start_parser.add_argument("--config", type=str, default=None)
@@ -651,7 +668,7 @@ def main() -> None:
     sub.add_parser("refresh", help="Trigger full reload (registry + graph/BM25) on running server")
 
     restart_parser = sub.add_parser("restart", help="Restart server")
-    restart_parser.add_argument("--transport", default="sse", choices=["sse", "http"])
+    restart_parser.add_argument("--transport", default="both", choices=["sse", "http", "both"])
     restart_parser.add_argument("--port", type=int, default=22902)
     restart_parser.add_argument("--host", default="0.0.0.0")
     restart_parser.add_argument("--config", type=str, default=None)

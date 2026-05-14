@@ -10,4 +10,4 @@ venv/
 
 # System
 .DS_Store
-*.bak
+*.bak.ewan-kb-server.log*
