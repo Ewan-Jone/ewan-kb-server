@@ -24,26 +24,29 @@ trigger: /ewankb-server-query
 
 在执行任何查询之前，先确认 ewan-kb-server 的 MCP 服务已配置：
 
-读取 `~/.claude/settings.json`，检查 `mcpServers` 中是否包含 `"ewankb-server"` 键。
+读取 `~/.claude.json`（全局）和当前项目的 `.mcp.json`（项目级），检查其中任一文件的 `mcpServers` 是否包含 `"ewankb-server"` 键。
 
 **如果未配置**，输出以下引导信息并停止：
 
 ```
 未检测到 ewan-kb-server 的 MCP 配置。请按以下步骤配置：
 
-1. 打开 Claude Code 配置文件 ~/.claude/settings.json
+1. 命令行一键添加（推荐）：
 
-2. 在 mcpServers 中添加 ewan-kb-server：
+   claude mcp add-json ewankb-server '{"type":"http","url":"http://<server-host>:22902/sse"}' --scope user
+
+2. 或手动编辑 ~/.claude.json（全局）或 .mcp.json（当前项目），添加：
 
    "mcpServers": {
      "ewankb-server": {
+       "type": "http",
        "url": "http://<server-host>:22902/sse"
      }
    }
 
    Streamable HTTP 模式使用 "http://<server-host>:22902/mcp"
 
-3. 保存后再次运行 /ewankb-server-query list 确认连接成功
+3. 重启 Claude Code 使配置生效，再次运行 /ewankb-server-query list 确认连接成功
 
 如果没有搭建过 ewan-kb-server 服务，参考：https://github.com/Ewan-Jones/ewan-kb-server
 ```

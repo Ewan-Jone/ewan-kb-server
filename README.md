@@ -56,31 +56,30 @@ ewankb-server restart    # 重启后台服务（保留原有参数）
 
 `stop` 通过 `~/.ewankb/ewankb-server.pid` 定位进程，先发 SIGTERM 优雅退出，超时 5 秒后 SIGKILL 强杀。
 
-### 4. 配置 MCP 客户端
+### 4. 配置 Claude Code
 
-SSE 模式：
+**方法一：命令行添加（推荐）**
+
+```bash
+claude mcp add-json ewankb-server '{"type":"http","url":"http://localhost:22902/sse"}' --scope user
+```
+
+**方法二：编辑配置文件**
+
+全局配置写入 `~/.claude.json`，项目级配置写入 `.mcp.json`：
 
 ```json
 {
   "mcpServers": {
     "ewankb-server": {
+      "type": "http",
       "url": "http://localhost:22902/sse"
     }
   }
 }
 ```
 
-Streamable HTTP 模式：
-
-```json
-{
-  "mcpServers": {
-    "ewankb-server": {
-      "url": "http://localhost:22902/mcp"
-    }
-  }
-}
-```
+服务端默认开启双协议，SSE 用 `/sse`，Streamable HTTP 用 `/mcp`。根据客户端 `--transport` 模式选择对应 URL。配置保存后需重启 Claude Code 生效。
 
 ## CLI 参数
 
