@@ -14,7 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from ewankb_server.config import load_server_config, get_server_settings, load_kb_registry, config_dir
+from ewankb_server.config import load_server_config, get_server_settings, load_kb_registry
 from ewankb_server.context import KBManager, _format_size
 
 _access_logger = logging.getLogger("ewankb-server.access")
@@ -352,39 +352,35 @@ def main() -> None:
     )
     parser.add_argument("--port", type=int, default=3000, help="HTTP port (default: 3000)")
     parser.add_argument("--host", default="0.0.0.0", help="HTTP host (default: 0.0.0.0)")
-    parser.add_argument("--config", type=str, default=None, help="System config file path")
-    parser.add_argument("--kbs", type=str, default=None, help="KB registry file path")
+    parser.add_argument("--config", type=str, default=None,
+                        help="System config file path (default: ~/.config/ewankb-server/config.json)")
+    parser.add_argument("--registry", type=str, default=None,
+                        help="KB registry file path (default: ~/.ewankb/kb_registry.json)")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="Log level (default: INFO)")
     parser.add_argument("--log-file", type=str, default=None,
-                        help="Log file path (default: ~/.config/ewankb-server/server.log)")
+                        help="Log file path (no default; console-only if not set)")
     parser.add_argument("--log-format", default="text", choices=["text", "json"],
                         help="Log format: 'text' for human-readable, 'json' for machine parsing (default: text)")
     args = parser.parse_args()
 
-    # Resolve log file path
-    log_file = args.log_file
-    if log_file is None:
-        log_file = str(config_dir() / "server.log")
-
-    # Ensure log directory exists
-    log_dir = Path(log_file).parent
-    log_dir.mkdir(parents=True, exist_ok=True)
-
     # Build handlers
     handlers: list[logging.Handler] = []
 
-    # Console handler
+    # Console handler (always on)
     console_handler = logging.StreamHandler()
     console_handler.setLevel(getattr(logging, args.log_level))
     handlers.append(console_handler)
 
-    # Rotating file handler (10MB x 5 backups)
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
-    )
-    file_handler.setLevel(getattr(logging, args.log_level))
-    handlers.append(file_handler)
+    # File handler (only if --log-file is explicitly set)
+    if args.log_file:
+        log_dir = Path(args.log_file).parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            args.log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+        )
+        file_handler.setLevel(getattr(logging, args.log_level))
+        handlers.append(file_handler)
 
     # Choose format
     if args.log_format == "json":
@@ -416,14 +412,14 @@ def main() -> None:
     )
     logging.getLogger("ewankb-server").info(
         "Logging initialized | level=%s file=%s format=%s",
-        args.log_level, log_file, args.log_format,
+        args.log_level, args.log_file or "(none)", args.log_format,
     )
 
     # Load config and initialize KBs
     global manager
     config = load_server_config(args.config)
     settings = get_server_settings(config)
-    kb_entries = load_kb_registry(args.kbs)
+    kb_entries = load_kb_registry(args.registry)
 
     manager = KBManager()
     print(f"Loading {len(kb_entries)} knowledge base(s)...", flush=True)

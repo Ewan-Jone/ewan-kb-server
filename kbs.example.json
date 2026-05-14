@@ -1,8 +1,0 @@
-{
-  "kbs": [
-    {
-      "name": "default",
-      "dir": "/path/to/your/knowledge-base"
-    }
-  ]
-}
