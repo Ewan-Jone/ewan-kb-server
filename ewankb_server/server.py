@@ -5,6 +5,10 @@ import argparse
 import json
 import logging
 import logging.handlers
+import os
+import signal
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -16,6 +20,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ewankb_server.config import load_server_config, get_server_settings, load_kb_registry
 from ewankb_server.context import KBManager, _format_size
+
+PID_FILE = Path.home() / ".ewankb" / "ewankb-server.pid"
 
 _access_logger = logging.getLogger("ewankb-server.access")
 
@@ -339,7 +345,8 @@ async def http_read_source_file(request: Request) -> JSONResponse:
 
 # ── CLI entry point ─────────────────────────────────────────────────────────
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build the argument parser (shared by default mode and subcommands)."""
     parser = argparse.ArgumentParser(
         prog="ewankb-server",
         description="Query server for ewankb knowledge bases (MCP + HTTP).",
@@ -353,7 +360,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=22902, help="HTTP port (default: 22902)")
     parser.add_argument("--host", default="0.0.0.0", help="HTTP host (default: 0.0.0.0)")
     parser.add_argument("--config", type=str, default=None,
-                        help="System config file path (default: ~/.config/ewankb-server/config.json)")
+                        help="System config file path")
     parser.add_argument("--registry", type=str, default=None,
                         help="KB registry file path (default: ~/.ewankb/kb_registry.json)")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -362,17 +369,21 @@ def main() -> None:
                         help="Log file path (no default; console-only if not set)")
     parser.add_argument("--log-format", default="text", choices=["text", "json"],
                         help="Log format: 'text' for human-readable, 'json' for machine parsing (default: text)")
-    args = parser.parse_args()
+    parser.add_argument("--reload-interval", type=int, default=60,
+                        help="KB registry auto-reload interval in seconds (default: 60, 0 to disable)")
+    parser.add_argument("--index-reload-interval", type=int, default=600,
+                        help="Graph/BM25 index auto-reload interval in seconds (default: 600, 0 to disable)")
+    return parser
 
-    # Build handlers
+
+def _setup_logging(args: argparse.Namespace) -> None:
+    """Configure logging from parsed args."""
     handlers: list[logging.Handler] = []
 
-    # Console handler (always on)
     console_handler = logging.StreamHandler()
     console_handler.setLevel(getattr(logging, args.log_level))
     handlers.append(console_handler)
 
-    # File handler (only if --log-file is explicitly set)
     if args.log_file:
         log_dir = Path(args.log_file).parent
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -382,7 +393,6 @@ def main() -> None:
         file_handler.setLevel(getattr(logging, args.log_level))
         handlers.append(file_handler)
 
-    # Choose format
     if args.log_format == "json":
         class JsonFormatter(logging.Formatter):
             def format(self, record):
@@ -415,26 +425,45 @@ def main() -> None:
         args.log_level, args.log_file or "(none)", args.log_format,
     )
 
-    # Load config and initialize KBs
+
+def _resolve_registry_path(registry_arg: str | None) -> Path | None:
+    """Resolve the actual registry path from CLI arg, env var, or default."""
+    import os as _os
+    if registry_arg is not None:
+        return Path(registry_arg)
+    if _os.environ.get("EWANKB_SERVER_KBS"):
+        return Path(_os.environ["EWANKB_SERVER_KBS"])
+    return Path.home() / ".ewankb" / "kb_registry.json"
+
+
+def _run_server(args: argparse.Namespace) -> None:
+    """Run the server in the current process (foreground)."""
     global manager
     config = load_server_config(args.config)
     settings = get_server_settings(config)
     kb_entries = load_kb_registry(args.registry)
 
-    manager = KBManager()
+    manager = KBManager(
+        reload_interval=args.reload_interval,
+        index_reload_interval=args.index_reload_interval,
+    )
     print(f"Loading {len(kb_entries)} knowledge base(s)...", flush=True)
-    manager.load_all(kb_entries)
+    registry_path = _resolve_registry_path(args.registry)
+    manager.load_all(kb_entries, registry_path=registry_path)
     print(f"Ready. {len(manager.contexts)} KB(s) loaded.", flush=True)
 
-    # Override port/host from config if not specified via CLI flags
+    # Register SIGUSR1 handler for manual refresh
+    def _on_refresh(signum, frame):
+        manager.refresh()
+
+    signal.signal(signal.SIGUSR1, _on_refresh)
+
     port = settings.get("port", args.port)
     host = settings.get("host", args.host)
 
-    # Map CLI transport arg to FastMCP transport name
     transport = "sse" if args.transport == "sse" else "streamable-http"
     label = "SSE" if args.transport == "sse" else "Streamable HTTP"
 
-    # Build ASGI app manually so we can add access log middleware
     app = mcp.http_app(transport=transport)
     app.add_middleware(AccessLogMiddleware)
     logging.getLogger("ewankb-server").info("Access log middleware enabled")
@@ -442,6 +471,163 @@ def main() -> None:
     print(f"Starting MCP {label} server on {host}:{port}", flush=True)
     import uvicorn
     uvicorn.run(app, host=host, port=port)
+
+
+def _cmd_start(args: argparse.Namespace) -> None:
+    """Start the server as a background daemon."""
+    if PID_FILE.exists():
+        pid = _read_pid()
+        if pid is not None and _is_running(pid):
+            print(f"Server is already running (PID: {pid})")
+            sys.exit(1)
+        PID_FILE.unlink(missing_ok=True)
+
+    # Build args for the child process (strip any subcommand so child runs in foreground)
+    _SUBCOMMANDS = {"start", "stop", "restart"}
+    child_argv = [sys.executable, "-m", "ewankb_server.server"]
+    for arg in sys.argv[1:]:
+        if arg in _SUBCOMMANDS:
+            continue
+        child_argv.append(arg)
+
+    # Ensure .ewankb directory exists
+    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    # Spawn detached child process
+    child = subprocess.Popen(
+        child_argv,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    PID_FILE.write_text(str(child.pid))
+    print(f"Server started (PID: {child.pid}, port: {args.port})")
+
+
+def _read_pid() -> int | None:
+    """Read PID from PID file. Returns None if file missing or corrupt."""
+    try:
+        return int(PID_FILE.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _is_running(pid: int) -> bool:
+    """Check if a process with the given PID is running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _cmd_stop() -> None:
+    """Stop a running background server."""
+    pid = _read_pid()
+    if pid is None:
+        print("No PID file found. Server is not running.")
+        sys.exit(1)
+
+    if not _is_running(pid):
+        print(f"PID {pid} is not running. Removing stale PID file.")
+        PID_FILE.unlink(missing_ok=True)
+        sys.exit(0)
+
+    # Send SIGTERM, wait gracefully
+    os.kill(pid, signal.SIGTERM)
+    print(f"Stopping server (PID: {pid})...", end=" ", flush=True)
+
+    for _ in range(50):  # 5 seconds with 0.1s intervals
+        time.sleep(0.1)
+        if not _is_running(pid):
+            print("stopped")
+            PID_FILE.unlink(missing_ok=True)
+            return
+
+    # Force kill if still alive
+    print("timeout, force killing...", end=" ", flush=True)
+    try:
+        os.kill(pid, signal.SIGKILL)
+        time.sleep(0.5)
+    except OSError:
+        pass
+    print("stopped")
+    PID_FILE.unlink(missing_ok=True)
+
+
+def _cmd_restart(args: argparse.Namespace) -> None:
+    """Restart the server (stop if running, then start)."""
+    if PID_FILE.exists():
+        pid = _read_pid()
+        if pid is not None and _is_running(pid):
+            _cmd_stop()
+    _cmd_start(args)
+
+
+def _cmd_refresh() -> None:
+    """Send SIGUSR1 to trigger a full reload in the running server."""
+    pid = _read_pid()
+    if pid is None:
+        print("No PID file found. Server is not running.")
+        sys.exit(1)
+    if not _is_running(pid):
+        print(f"PID {pid} is not running. Removing stale PID file.")
+        PID_FILE.unlink(missing_ok=True)
+        sys.exit(1)
+    os.kill(pid, signal.SIGUSR1)
+    print(f"Refresh signal sent to server (PID: {pid})")
+
+
+def main() -> None:
+    parser = _build_arg_parser()
+    sub = parser.add_subparsers(dest="command")
+
+    start_parser = sub.add_parser("start", help="Start server in background")
+    # Re-add all server options for the start subcommand
+    start_parser.add_argument("--transport", default="sse", choices=["sse", "http"])
+    start_parser.add_argument("--port", type=int, default=22902)
+    start_parser.add_argument("--host", default="0.0.0.0")
+    start_parser.add_argument("--config", type=str, default=None)
+    start_parser.add_argument("--registry", type=str, default=None)
+    start_parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    start_parser.add_argument("--log-file", type=str, default=None)
+    start_parser.add_argument("--log-format", default="text", choices=["text", "json"])
+    start_parser.add_argument("--reload-interval", type=int, default=60)
+    start_parser.add_argument("--index-reload-interval", type=int, default=600)
+
+    sub.add_parser("stop", help="Stop background server")
+    sub.add_parser("refresh", help="Trigger full reload (registry + graph/BM25) on running server")
+
+    restart_parser = sub.add_parser("restart", help="Restart server")
+    restart_parser.add_argument("--transport", default="sse", choices=["sse", "http"])
+    restart_parser.add_argument("--port", type=int, default=22902)
+    restart_parser.add_argument("--host", default="0.0.0.0")
+    restart_parser.add_argument("--config", type=str, default=None)
+    restart_parser.add_argument("--registry", type=str, default=None)
+    restart_parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    restart_parser.add_argument("--log-file", type=str, default=None)
+    restart_parser.add_argument("--log-format", default="text", choices=["text", "json"])
+    restart_parser.add_argument("--reload-interval", type=int, default=60)
+    restart_parser.add_argument("--index-reload-interval", type=int, default=600)
+
+    args = parser.parse_args()
+
+    if args.command == "start":
+        _setup_logging(args)
+        _cmd_start(args)
+    elif args.command == "stop":
+        _cmd_stop()
+    elif args.command == "refresh":
+        _cmd_refresh()
+    elif args.command == "restart":
+        _setup_logging(args)
+        _cmd_restart(args)
+    else:
+        # Default: foreground mode (backward compatible)
+        _setup_logging(args)
+        _run_server(args)
 
 
 if __name__ == "__main__":

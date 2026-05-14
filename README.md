@@ -33,12 +33,25 @@ pip install ewan-kb-server
 ### 2. 启动服务
 
 ```bash
+# 前台运行（开发调试用，Ctrl+C 停止）
 ewankb-server
+
+# 后台运行（生产环境用）
+ewankb-server start
 ```
 
 默认启动 SSE MCP 服务，监听 `0.0.0.0:22902`。使用 `--transport http` 可切换到 Streamable HTTP。
 
-### 3. 配置 MCP 客户端
+### 3. 停止与重启
+
+```bash
+ewankb-server stop       # 停止后台服务
+ewankb-server restart    # 重启后台服务（保留原有参数）
+```
+
+`stop` 通过 `~/.ewankb/ewankb-server.pid` 定位进程，先发 SIGTERM 优雅退出，超时 5 秒后 SIGKILL 强杀。
+
+### 4. 配置 MCP 客户端
 
 ```json
 {
@@ -54,6 +67,20 @@ SSE 模式下 URL 为 `http://localhost:22902/sse`。
 
 ## CLI 参数
 
+### 子命令
+
+| 命令 | 说明 |
+|------|------|
+| *(无)* | 前台运行（默认） |
+| `start` | 后台启动 |
+| `stop` | 停止后台进程 |
+| `restart` | 重启后台进程 |
+| `refresh` | 手动触发全量重载（注册表 + 图谱/BM25 索引） |
+
+`start`、`restart` 接受以下全部参数；`stop`、`refresh` 不需要参数，通过 PID 文件定位进程。
+
+### 参数
+
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `--port` | `22902` | HTTP 端口 |
@@ -64,6 +91,8 @@ SSE 模式下 URL 为 `http://localhost:22902/sse`。
 | `--log-level` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `--log-file` | — | 日志文件路径，不传则仅输出到控制台 |
 | `--log-format` | `text` | `text` 或 `json` |
+| `--reload-interval` | `60` | 注册表自动重载间隔（秒），设为 0 禁用 |
+| `--index-reload-interval` | `600` | 图谱/BM25 索引自动重载间隔（秒），设为 0 禁用 |
 
 `--config` 文件格式（所有字段可选，未指定则使用上表默认值）：
 
