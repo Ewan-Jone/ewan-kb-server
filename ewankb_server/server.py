@@ -19,10 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
-from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.routing import Mount
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ewankb_server.config import load_server_config, get_server_settings, load_kb_registry
@@ -482,11 +480,13 @@ def _run_server(args: argparse.Namespace) -> None:
     host = settings.get("host", args.host)
 
     if args.transport == "both":
-        routes = [
-            Mount("/sse", app=mcp.http_app(transport="sse")),
-            Mount("/mcp", app=mcp.http_app(transport="streamable-http")),
-        ]
-        app: ASGIApp = Starlette(routes=routes)
+        # Use streamable-http app as base (proper MCP lifespan), merge SSE routes in.
+        sse_app = mcp.http_app(transport="sse")
+        app = mcp.http_app(transport="streamable-http")
+        existing = {getattr(r, "path", "") for r in app.routes}
+        for route in sse_app.routes:
+            if getattr(route, "path", "") not in existing:
+                app.routes.append(route)
         label = "SSE + Streamable HTTP"
         app.add_middleware(AccessLogMiddleware)
     else:

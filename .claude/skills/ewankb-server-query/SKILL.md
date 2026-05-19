@@ -47,8 +47,6 @@ trigger: /ewankb-server-query
    Streamable HTTP 模式使用 "http://<server-host>:22902/mcp"
 
 3. 重启 Claude Code 使配置生效，再次运行 /ewankb-server-query list 确认连接成功
-
-如果没有搭建过 ewan-kb-server 服务，参考：https://github.com/Ewan-Jones/ewan-kb-server
 ```
 
 **如果已配置**，继续执行后续步骤。

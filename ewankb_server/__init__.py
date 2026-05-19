@@ -1,2 +1,2 @@
 """ewan-kb-server — Query server for ewankb knowledge bases."""
-__version__ = "0.3.2"
+__version__ = "0.3.3"
