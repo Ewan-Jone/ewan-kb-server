@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ewan-kb-server"
-version = "0.3.3"
+version = "0.3.4"
 description = "Query server for ewankb knowledge bases — MCP + HTTP interface."
 readme = "README.md"
 license = "MIT"

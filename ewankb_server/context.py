@@ -30,13 +30,12 @@ class KBManager:
     graph/BM25 index refresh.
     """
 
-    def __init__(self, reload_interval: int = 60, index_reload_interval: int = 600) -> None:
+    def __init__(self, reload_interval: int = 60) -> None:
         self.contexts: dict[str, KBContext] = {}
         self._meta: dict[str, dict[str, str]] = {}  # name -> {display_name, description}
         self._lock = threading.Lock()
         self._registry_path: Path | None = None
         self._reload_interval = reload_interval
-        self._index_reload_interval = index_reload_interval
         self._reload_thread: threading.Thread | None = None
         self._index_reload_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -76,13 +75,13 @@ class KBManager:
             logger.info("Registry auto-reload enabled: interval=%ds registry=%s",
                         self._reload_interval, registry_path)
 
-        # Start index auto-reload thread
-        if self._index_reload_interval > 0 and len(self.contexts) > 0:
+        # Start index auto-reload thread (daily at 02:00 and 13:00)
+        if len(self.contexts) > 0:
             self._index_reload_thread = threading.Thread(
                 target=self._index_reload_loop, daemon=True, name="kb-index-reload"
             )
             self._index_reload_thread.start()
-            logger.info("Index auto-reload enabled: interval=%ds", self._index_reload_interval)
+            logger.info("Index auto-reload enabled: daily at 02:00 and 13:00")
 
     def _load_one(self, name: str, kb_dir: Path) -> None:
         """Load a single KB and add to contexts (caller must hold lock)."""
@@ -124,13 +123,11 @@ class KBManager:
 
             with self._lock:
                 current_names = set(self.contexts.keys())
-                new_names = {e["name"] for e in entries}
+                entry_map = {e["name"]: e for e in entries}
+                new_names = set(entry_map.keys())
 
                 added = new_names - current_names
                 removed = current_names - new_names
-
-                if not added and not removed:
-                    continue
 
                 if removed:
                     logger.info("Auto-reload: removing KBs %s", removed)
@@ -139,23 +136,43 @@ class KBManager:
 
                 if added:
                     logger.info("Auto-reload: adding KBs %s", added)
-                    for entry in entries:
-                        if entry["name"] in added:
-                            kb_dir = Path(entry.get("dir", ""))
-                            if kb_dir.exists():
-                                self._meta[entry["name"]] = {
-                                    "display_name": entry.get("display_name", ""),
-                                    "description": entry.get("description", ""),
-                                }
-                                self._load_one(entry["name"], kb_dir)
-                            else:
-                                print(f"Warning: KB '{entry['name']}' dir not found: {kb_dir}, skipping",
-                                      flush=True)
+                    for name in added:
+                        entry = entry_map[name]
+                        kb_dir = Path(entry.get("dir", ""))
+                        if kb_dir.exists():
+                            self._meta[name] = {
+                                "display_name": entry.get("display_name", ""),
+                                "description": entry.get("description", ""),
+                            }
+                            self._load_one(name, kb_dir)
+                        else:
+                            print(f"Warning: KB '{name}' dir not found: {kb_dir}, skipping",
+                                  flush=True)
+
+                # Sync metadata for existing KBs (handle description/display_name changes)
+                for name in current_names & new_names:
+                    entry = entry_map[name]
+                    new_meta = {
+                        "display_name": entry.get("display_name", ""),
+                        "description": entry.get("description", ""),
+                    }
+                    if self._meta.get(name) != new_meta:
+                        self._meta[name] = new_meta
+                        logger.info("Auto-reload: updated metadata for '%s'", name)
 
     def _index_reload_loop(self) -> None:
-        """Background thread: periodically reload graph + BM25 for all KBs."""
-        while not self._stop_event.wait(timeout=self._index_reload_interval):
-            self.refresh_indexes()
+        """Background thread: reload graph + BM25 daily at 02:00 and 13:00."""
+        _SCHEDULE_HOURS = {2, 13}
+        _last_run_date: str = ""
+
+        while not self._stop_event.wait(timeout=60):
+            now = time.localtime()
+            today = time.strftime("%Y-%m-%d", now)
+            hour = now.tm_hour
+            if hour in _SCHEDULE_HOURS and today != _last_run_date:
+                _last_run_date = today
+                logger.info("Index auto-reload: scheduled run at %02d:00", hour)
+                self.refresh_indexes()
 
     def refresh(self) -> None:
         """Full refresh: reload registry, then all graph/BM25 indexes.
@@ -172,7 +189,8 @@ class KBManager:
             else:
                 with self._lock:
                     current_names = set(self.contexts.keys())
-                    new_names = {e["name"] for e in entries}
+                    entry_map = {e["name"]: e for e in entries}
+                    new_names = set(entry_map.keys())
                     added = new_names - current_names
                     removed = current_names - new_names
 
@@ -182,15 +200,26 @@ class KBManager:
                             self._unload_one(name)
                     if added:
                         logger.info("Refresh: adding KBs %s", added)
-                        for entry in entries:
-                            if entry["name"] in added:
-                                kb_dir = Path(entry.get("dir", ""))
-                                if kb_dir.exists():
-                                    self._meta[entry["name"]] = {
-                                        "display_name": entry.get("display_name", ""),
-                                        "description": entry.get("description", ""),
-                                    }
-                                    self._load_one(entry["name"], kb_dir)
+                        for name in added:
+                            entry = entry_map[name]
+                            kb_dir = Path(entry.get("dir", ""))
+                            if kb_dir.exists():
+                                self._meta[name] = {
+                                    "display_name": entry.get("display_name", ""),
+                                    "description": entry.get("description", ""),
+                                }
+                                self._load_one(name, kb_dir)
+
+                    # Sync metadata for existing KBs
+                    for name in current_names & new_names:
+                        entry = entry_map[name]
+                        new_meta = {
+                            "display_name": entry.get("display_name", ""),
+                            "description": entry.get("description", ""),
+                        }
+                        if self._meta.get(name) != new_meta:
+                            self._meta[name] = new_meta
+                            logger.info("Refresh: updated metadata for '%s'", name)
 
         # Reload all graph/BM25 indexes
         self.refresh_indexes()

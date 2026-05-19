@@ -108,7 +108,8 @@ claude mcp add-json ewankb-server '{"type":"http","url":"http://localhost:22902/
 | `--log-file` | `.ewan-kb-server.log` | 日志文件路径 |
 | `--log-format` | `text` | `text` 或 `json` |
 | `--reload-interval` | `60` | 注册表自动重载间隔（秒），设为 0 禁用 |
-| `--index-reload-interval` | `600` | 图谱/BM25 索引自动重载间隔（秒），设为 0 禁用 |
+
+图谱/BM25 索引每天 02:00 和 13:00 自动重载，通过 `/_refresh` 端点或 `ewankb-server refresh` 可手动触发。
 
 `--config` 文件格式（所有字段可选，未指定则使用上表默认值）：
 

@@ -22,34 +22,36 @@ trigger: /ewankb-server-query
 
 ### 0. 检查 MCP 配置
 
-在执行任何查询之前，先确认 ewan-kb-server 的 MCP 服务已配置：
+在执行任何查询之前，先尝试调用 `list_kbs` MCP 工具确认 ewan-kb-server 已连接。
 
-读取 `~/.claude.json`（全局）和当前项目的 `.mcp.json`（项目级），检查其中任一文件的 `mcpServers` 是否包含 `"ewankb-server"` 键。
-
-**如果未配置**，输出以下引导信息并停止：
+**如果工具不可用（No such tool available）**，输出以下引导信息并停止：
 
 ```
-未检测到 ewan-kb-server 的 MCP 配置。请按以下步骤配置：
+未检测到 ewan-kb-server MCP 服务。请按以下步骤配置：
 
-1. 命令行一键添加（推荐）：
+1. 打开 ~/.claude.json（注意：不是 settings.json，settings.json 不支持 mcpServers）
 
-   claude mcp add-json ewankb-server '{"type":"http","url":"http://<server-host>:22902/sse"}' --scope user
-
-2. 或手动编辑 ~/.claude.json（全局）或 .mcp.json（当前项目），添加：
-
+2. 添加或修改 "mcpServers" 字段：
    "mcpServers": {
      "ewankb-server": {
-       "type": "http",
+       "type": "sse",
        "url": "http://<server-host>:22902/sse"
      }
    }
+   或使用 Streamable HTTP：                                                      
+    "mcpServers": {                                                               
+		"ewankb-server": {                                                          
+		"type": "streamable-http",                                                
+		"url": "http://<server-host>:22902/mcp"                               
+	 }                                                                           
+	} 
 
-   Streamable HTTP 模式使用 "http://<server-host>:22902/mcp"
+3. 保存后重启 Claude Code 即可生效
 
-3. 重启 Claude Code 使配置生效，再次运行 /ewankb-server-query list 确认连接成功
+如果没有搭建过 ewan-kb-server 服务，参考：https://github.com/Ewan-Jones/ewan-kb-server
 ```
 
-**如果已配置**，继续执行后续步骤。
+**如果工具可用**，继续执行后续步骤。
 
 ### 0.5. 确定目标 KB
 
@@ -60,17 +62,8 @@ trigger: /ewankb-server-query
 
 如果用户没有指定 KB，调用 `list_kbs` MCP 工具获取可用 KB 列表，然后：
 - 如果只有 1 个 KB → 自动使用它
-- 如果有多个 KB → 展示列表让用户选择
+- 如果有多个 KB → 展示列表让用户选择，展示格式参考`/ewankb-server-query list`的展示
 
-```
-检测到以下可用知识库：
-
-| 库名 | 节点数 | 边数 | 文档数 | 目录 |
-|------|--------|------|--------|------|
-| ... | ... | ... | ... | ... |
-
-请指定要查询的知识库，如：/ewankb-server-query graph <库名> "问题"
-```
 
 ### 1. 判断查询模式
 
@@ -79,7 +72,24 @@ trigger: /ewankb-server-query
 - `/ewankb-server-query graph <kb> <问题>` → **图谱模式**（步骤 2A）
 - `/ewankb-server-query kb <kb> <问题>` → **kb 模式**（步骤 2B）
 - `/ewankb-server-query deep <kb> <问题>` → **双路对比模式**（步骤 2C）
-- `/ewankb-server-query list` → 调用 `list_kbs` MCP 工具，展示所有 KB
+- `/ewankb-server-query list` → 调用 `list_kbs` MCP 工具，**严格按以下模板**展示所有 KB：
+
+```
+检测到以下可用知识库：
+
+| 库名（英文） | 库名（中文） | 描述 | 文档数 |
+|------|--------|------|--------|
+| ... | ... | ... | ... |
+
+请指定要查询的知识库，如：/ewankb-server-query graph <库名> "问题"
+```
+
+**list 展示规则**：
+- 只展示 4 列：库名（英文）、库名（中文）、描述、文档数，**禁止**展示节点数、边数、目录路径等其他字段
+- 库名（中文）根据领域常识推断，若无法推断则填 `—`
+- 描述取 `list_kbs` 返回的 description 字段，若无则填 `—`
+- 文档数取 `list_kbs` 返回的 docs 字段
+- 末尾统一附使用提示
 
 ### 2A. Graph 模式（仅图谱）
 

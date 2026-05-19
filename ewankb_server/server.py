@@ -389,8 +389,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Log format: 'text' for human-readable, 'json' for machine parsing (default: text)")
     parser.add_argument("--reload-interval", type=int, default=60,
                         help="KB registry auto-reload interval in seconds (default: 60, 0 to disable)")
-    parser.add_argument("--index-reload-interval", type=int, default=600,
-                        help="Graph/BM25 index auto-reload interval in seconds (default: 600, 0 to disable)")
     return parser
 
 
@@ -461,10 +459,7 @@ def _run_server(args: argparse.Namespace) -> None:
     settings = get_server_settings(config)
     kb_entries = load_kb_registry(args.registry)
 
-    manager = KBManager(
-        reload_interval=args.reload_interval,
-        index_reload_interval=args.index_reload_interval,
-    )
+    manager = KBManager(reload_interval=args.reload_interval)
     print(f"Loading {len(kb_entries)} knowledge base(s)...", flush=True)
     registry_path = _resolve_registry_path(args.registry)
     manager.load_all(kb_entries, registry_path=registry_path)
@@ -662,8 +657,7 @@ def main() -> None:
     start_parser.add_argument("--log-file", type=str, default=".ewan-kb-server.log")
     start_parser.add_argument("--log-format", default="text", choices=["text", "json"])
     start_parser.add_argument("--reload-interval", type=int, default=60)
-    start_parser.add_argument("--index-reload-interval", type=int, default=600)
-
+    
     sub.add_parser("stop", help="Stop background server")
     sub.add_parser("refresh", help="Trigger full reload (registry + graph/BM25) on running server")
 
@@ -677,7 +671,6 @@ def main() -> None:
     restart_parser.add_argument("--log-file", type=str, default=".ewan-kb-server.log")
     restart_parser.add_argument("--log-format", default="text", choices=["text", "json"])
     restart_parser.add_argument("--reload-interval", type=int, default=60)
-    restart_parser.add_argument("--index-reload-interval", type=int, default=600)
 
     args = parser.parse_args()
 
